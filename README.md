@@ -1,50 +1,50 @@
-# Codex Deployment Demo — Context System + Verified Change
+# agent-context-system
 
-A small demonstration of how I'd deploy Codex into a real enterprise monorepo: not "install it and start prompting," but stand up the **context system** that makes an agent consistent across a team, then prove the workflow on an actual change with tests.
+A reusable context system for running coding agents reliably on large, real-world monorepos. The idea: an agent is only as good as the context it operates in. Instead of re-teaching an agent your conventions on every task, you encode them once as shared infrastructure — codified standards, a scoped instructions hierarchy, and verified-change workflows the agent follows automatically.
 
-I ran this on the [Supabase](https://github.com/supabase/supabase) monorepo — a genuinely complex, multi-language codebase (Next.js/React/TypeScript, Go, Postgres, Deno) — because toy apps don't surface the things that actually matter at enterprise scale.
+I built and validated this on the [Supabase](https://github.com/supabase/supabase) monorepo because it's genuinely complex — multi-language (Next.js/React/TypeScript, Go, Postgres, Deno) and large enough that shallow context falls apart fast.
 
-The thesis: **the deployment is the context system; the model is table stakes.** Adoption stalls when every engineer re-teaches the agent the org's conventions from zero. The deployment engineer's job is to build the scaffolding that makes the agent inherit the team's taste automatically.
+The thesis: **the context system is the work; the model is table stakes.** Most of the value in running coding agents at scale comes from the scaffolding around them, not the model itself.
 
 ---
 
 ## What's here
 
 ### 1. Codified standards (`standards/`)
-The base layer the agent reads on every task — universal code standards plus language-specific TypeScript, evaluation, and documentation standards. This is how the agent inherits the team's conventions instead of guessing.
+The base layer the agent reads on every task — universal code standards plus language-specific TypeScript, evaluation, and documentation standards. This is how the agent inherits a consistent set of conventions instead of guessing per task.
 
-### 2. AGENTS.md hierarchy
-- `AGENTS.md` (root) — universal operating context: read the standards, understand from first principles, smallest scoped change, close the loop before declaring done.
-- `apps/studio/AGENTS.md` (scoped) — package-local conventions for the Studio dashboard: thin pages / feature components / layouts, the single fetch boundary (`data/fetchers.ts`), the SQL execution boundary, React Query for server state vs Valtio for interactive state, and the hosted-vs-self-hosted split.
+### 2. Scoped instructions hierarchy (`AGENTS.md` files)
+- `AGENTS.md` (root) — universal operating context: read the standards, understand from first principles, make the smallest scoped change, verify before declaring done.
+- `apps/studio/AGENTS.md` (scoped) — package-local conventions for the Studio app: thin pages / feature components / layouts, the single fetch boundary, the SQL execution boundary, server-state vs interactive-state separation, and the hosted-vs-self-hosted split.
 
-The scoped file **merges on top of** the root and overrides for that package — so each team gets the right local context without bloating one giant root file. (This also mitigates instruction-following decay: smaller, scoped context beats one file that the agent stops honoring deep in a session.)
+The scoped file **merges on top of** the root and overrides for that package — so each part of the repo gets the right local context without bloating one giant root file. This also mitigates instruction-following decay: smaller, scoped context holds up better than one file the agent stops honoring deep in a long session.
 
 ### 3. A reusable Skill (`.codex/skills/studio-verified-change/`)
-Encodes the exact diagnose → plan → change → verify loop as a repeatable workflow any engineer can invoke — including the repo-specific verification command. This is the unit of scaling a deployment past one person: the workflow becomes shared infrastructure, not tribal knowledge.
+Encodes a diagnose → plan → change → verify loop as a repeatable workflow, including the repo-specific verification command. Encoding the workflow once makes it reproducible across a team instead of living in one person's head.
 
 ### 4. A verified change (`sql-event-parser-fix.patch`)
-A real, bounded fix to Studio's SQL event parser, taken through plan-then-execute with test-first verification.
+A real, bounded fix to a SQL event parser, taken through plan-then-execute with test-first verification.
 
 ---
 
-## The verified change — what actually happened
+## The verified change — what happened
 
-The change: harden quoted-identifier normalization in `apps/studio/lib/sql-event-parser.ts`. The original `cleanIdentifier` stripped all quote characters, so a Postgres identifier like `"user""table"` (an escaped double-quote) was mangled into `usertable` instead of the correct `user"table`.
+The change: harden quoted-identifier normalization in a SQL event parser. The original logic stripped all quote characters, so a Postgres identifier like `"user""table"` (an escaped double quote) was mangled into `usertable` instead of the correct `user"table`.
 
 The process is the point:
 
-1. **Plan first.** Codex proposed a bounded plan scoped to three files, with named risks and explicit "done when" criteria — and crucially, tests written to *fail before and pass after*, so the fix is provably the cause.
+1. **Plan first.** The agent proposed a bounded plan scoped to three files, with named risks and explicit "done when" criteria — including tests written to *fail before and pass after*, so the fix is provably the cause.
 2. **Execute against the locked plan.**
-3. **Verify — and this is where it earned its keep.** Running the focused test suite surfaced a bug the plan hadn't anticipated: the table-side regex already handled escaped quotes, but the **schema-side capture didn't**. Rather than patch the symptom, the fix went upstream and aligned the schema capture pattern with the table capture across every pattern group.
+3. **Verify — where it earned its keep.** Running the focused test suite surfaced a bug the plan hadn't anticipated: the table-side regex already handled escaped quotes, but the schema-side capture didn't. Rather than patch the symptom, the fix went upstream and aligned the schema capture pattern across every pattern group.
 4. **Result:** 140 tests pass.
 
-If the loop had stopped at "did it make the edit?", a half-fix ships. The gap between *generated* and *verified* is the entire job — and it's why every workflow here closes with a real test run, not a vibe.
+If the loop had stopped at "did it make the edit?", a half-fix ships. The gap between *generated* and *verified* is the whole point — which is why every workflow here closes with a real test run, not a vibe.
 
 ---
 
 ## Running it
 
-The standards, AGENTS.md files, and Skill are dropped into a checkout of the Supabase monorepo. The fix is provided as a patch against that repo. Verification in this repo runs through Corepack (pnpm isn't on PATH by default):
+The standards, `AGENTS.md` files, and Skill drop into a checkout of the target monorepo. The fix is provided as a patch against that repo. Focused tests run via the package manager declared by the repo:
 
 ```bash
 corepack pnpm vitest --run \
@@ -56,4 +56,4 @@ corepack pnpm vitest --run \
 
 ## Why this shape
 
-This mirrors how I'd actually onboard a customer team to Codex: start with the smallest high-value wedge, stand up the context system (standards → AGENTS.md hierarchy → Skills), and prove trust on bounded, verified changes before scaling to automations and parallel agents. Measure quality (revert rate, escaped-defect rate, eval pass rate), not just activity (PRs assisted) — because activity up with quality down kills trust faster than no tool at all.
+Adoption of coding agents tends to stall when every engineer re-teaches the agent the same conventions from scratch. This repo is a small, concrete answer to that: start narrow, encode the context system (standards → instructions hierarchy → Skills), and prove trust on bounded, verified changes before automating more. Measure quality (revert rate, escaped-defect rate, eval pass rate), not just activity — because activity up with quality down erodes trust faster than no tool at all.
